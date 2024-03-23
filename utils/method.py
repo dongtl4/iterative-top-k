@@ -368,14 +368,14 @@ def samplingTopk(nodes, n, k, delta=0.05, epsilon=1):
     """
     Sampling based top frequent items
     """
-    estimated_score=pd.Series(0, index=nodes[0].fullindex, dtype=nodes[0].data.dtype)
+    estimated_score=pd.Series(0, index=nodes[0].fullindex, dtype='float64')
     S = []
     s = 0
     for i in range(len(nodes)):
         nodes[i].nbrounds += 1
         nodes[i].received_message[nodes[i].nbrounds] = 1
         start = time.time()
-        s += sum(nodes[i].data)
+        s += sum(nodes[i].darray)
         end = time.time()
         nodes[i].compute_time[nodes[i].nbrounds] = end-start
     S.append(s)
@@ -396,7 +396,7 @@ def samplingTopk(nodes, n, k, delta=0.05, epsilon=1):
             nodes[i].nbrounds += 1
             nodes[i].received_message[nodes[i].nbrounds] = 8
             start = time.time()
-            sample = pd.Series(np.random.binomial(nodes[i].data, pstar), index=nodes[i].data.index)
+            sample = pd.Series(np.random.binomial(nodes[i].darray.astype(int), pstar), index=nodes[i].dindex)
             sample = sample[sample>0]
             message.append(sample)
             end = time.time()
@@ -698,8 +698,8 @@ def IES(nodes, n, k, delta=0.05, epsilon=0.5, approx=True, adapt=False):
             nodes[i].received_message[nodes[i].nbrounds] = 8
             # generate exponential random sample in range t2 <= s_ij < t1
             start = time.time()
-            considered = nodes[i].sorted_collect_threshold(nodes[i].data, lower=nodes[i].threshold, upper=nodes[i].prevthres)
-            nodes[i].generate_exp_rand(considered, replace=True)
+            u, l = nodes[i].ul_sorted_collect_threshold(nodes[i].darray, lower=nodes[i].threshold, upper=nodes[i].prevthres)
+            nodes[i].generate_exp_rand(nodes[i].darray[u:l], nodes[i].dindex[u:l], replace=True)
             # collect candidates
             candidates = nodes[i].collect_threshold(nodes[i].random, upper=-np.log(delta)/p).index
             message.append(candidates)
@@ -878,14 +878,14 @@ def KLEE3(nodes, n, k, c=10, a=1, adapt=False, approx=True):
         nodes[i].received_message[nodes[i].nbrounds] = 2 # broadcast k and a flag indicate the query started
         start = time.time()
         considered = [nodes[i].dindex[:k], nodes[i].darray[:k]]
-        hist = np.histogram(nodes[i].data, bins=100)
+        hist = np.histogram(nodes[i].darray, bins=100)
         average = []
         for h in range(99):
             if hist[0][h] > 0:
-                average.append(sum(nodes[i].data[(nodes[i].data>=hist[1][h]) & (nodes[i].data<hist[1][h+1])])/hist[0][h])
+                average.append(sum(nodes[i].darray[(nodes[i].darray>=hist[1][h]) & (nodes[i].darray<hist[1][h+1])])/hist[0][h])
             else:
                 average.append(0)
-        average.append(sum(nodes[i].data[(nodes[i].data>=hist[1][99]) & (nodes[i].data<=hist[1][100])])/hist[0][99])
+        average.append(sum(nodes[i].darray[(nodes[i].darray>=hist[1][99]) & (nodes[i].darray<=hist[1][100])])/hist[0][99])
         bloom=[]
         cur_ind = 0
         for h in range(c):
@@ -1138,11 +1138,11 @@ def HEGBA(nodes, n, k, delta=0.05, a=1, adapt=False, approx=True):
         # generate exponential random sample in range t2 <= s_ij < t1
         start = time.time()
         if not approx:
-            candidates = nodes[i].data.index[(nodes[i].data[nodes[i].data.index] >= nodes[i].threshold*(1-a))
-                                   & (np.random.exponential(1/nodes[i].data[nodes[i].data.index]) <= collect_threshold)]
+            candidates = nodes[i].dindex[(nodes[i].darray >= nodes[i].threshold*(1-a))
+                                   & (np.random.exponential(1/nodes[i].darray) <= collect_threshold)]
         else:
-            candidates = nodes[i].data.index[(nodes[i].data[nodes[i].data.index] >= nodes[i].threshold)
-                                   & (np.random.exponential(1/nodes[i].data[nodes[i].data.index]) <= collect_threshold)]
+            candidates = nodes[i].dindex[(nodes[i].darray >= nodes[i].threshold)
+                                   & (np.random.exponential(1/nodes[i].darray) <= collect_threshold)]
         message.append(candidates)
         end=time.time()
         nodes[i].compute_time[nodes[i].nbrounds] = end-start
@@ -1217,3 +1217,20 @@ def HEGBA(nodes, n, k, delta=0.05, a=1, adapt=False, approx=True):
         end=time.time()
         cct[nodes[0].nbrounds]=end-start 
     return collected, cct
+
+def solve_k(epsilon, delta):
+    z = scipy.stats.norm.ppf(1-delta)
+    kl = np.ceil(((z*(1+epsilon)+np.sqrt(z*z*(1+epsilon)**2-epsilon*z*z*(1+epsilon)))/epsilon)**2)
+    ku = np.ceil((z/epsilon+np.sqrt(z/epsilon*(z+z/epsilon)))**2-1)
+    
+    kln = np.ceil(((1-scipy.special.gammaincinv(kl, delta)/kl)/(1-1/np.sqrt(1+epsilon)))**2*kl)
+    while np.abs(kln - kl)>1:
+        kl=kln
+        kln = np.ceil(((1-scipy.special.gammaincinv(kl, delta)/kl)/(1-1/np.sqrt(1+epsilon)))**2*kl)
+    kl = kln
+    kun = np.ceil(((scipy.special.gammaincinv(ku, 1-delta)/ku-1)/(np.sqrt(1+epsilon)-1))**2*ku)
+    while np.abs(kun - ku)>1:
+        ku=kun
+        kun = np.ceil(((scipy.special.gammaincinv(ku, 1-delta)/ku-1)/(np.sqrt(1+epsilon)-1))**2*ku)
+    ku = kun
+    return max([kl, ku])

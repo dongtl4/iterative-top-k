@@ -22,7 +22,7 @@ class node:
         self.darray = []
         self.dindex = []
         self.sent = np.zeros(len(self.data), dtype='bool') # only used when needed to save the sent position
-        self.random = pd.Series([], name='random sample', dtype = self.data.dtypes)
+        self.random = pd.Series([], name='random sample', dtype = 'float64')
         self.threshold = 0
         self.prevthres = np.inf
         self.fullindex = 0
@@ -55,29 +55,31 @@ class node:
         else:
             self.random = pd.concat([self.random, pd.Series(np.random.binomial(origin, p), index=origin.index, dtype=self.data.dtypes)])
         
-    def generate_poisson_rand(self, origin, p, replace=False):
+    def generate_poisson_rand(self, origin, index, p, replace=False):
         """
         generate random variables that follow Poisson distribution
         """
         if replace:
-            self.random = pd.Series(np.random.poisson(origin*p), index=origin.index, dtype=self.data.dtypes)
+            self.random = pd.Series(np.random.poisson(origin*p), index=index, dtype=self.data.dtypes)
         else:
             self.random = pd.concat([self.random, pd.Series(np.random.poisson(origin*p), index=origin.index, dtype=self.data.dtypes)])
      
-    def generate_exp_rand(self, origin, replace=False):
+    def generate_exp_rand(self, origin, index, replace=False):
         """
         generate random variables that follow exponential distribution
         """
         if replace:
-            self.random = pd.Series(np.random.exponential(1/origin), index=origin.index, dtype=self.data.dtypes)
+            self.random = pd.Series(np.random.exponential(1/origin), index=index, dtype=self.data.dtypes)
         else:
-            self.random = pd.concat([self.random, pd.Series(np.random.exponential(1/origin), index=origin.index, dtype=self.data.dtypes)])
+            self.random = pd.concat([self.random, pd.Series(np.random.exponential(1/origin), index=index, dtype=self.data.dtypes)])
     
     def dup_data(self):
         self.darray = np.array(self.data.values)
         self.dindex = np.array(self.data.index)
+        self.data = pd.Series(dtype='float64')
         
     def sub_data(self):
+        self.data = pd.Series(data=self.darray, index=self.dindex)
         self.darray = []
         self.dindex = []
         
@@ -85,8 +87,8 @@ class node:
     def refresh(self):
         self.threshold = 0
         self.prevthres = np.inf
-        self.random = pd.Series([], name='random sample', dtype = self.data.dtypes)
-        self.sent = np.zeros(len(self.data), dtype='bool')
+        self.random = pd.Series([], name='random sample', dtype = 'float64')
+        self.sent = np.zeros(max(len(self.data), len(self.darray)), dtype='bool')
         # performance tracking
         self.compute_time = {}
         self.ID_sent = {} # number of item's ID sent
@@ -117,6 +119,12 @@ class node:
         up = l-np.searchsorted(origin[::-1], upper)
         low = l-np.searchsorted(origin[::-1], lower)
         return origin[up:low]
+    
+    def ul_sorted_collect_threshold(self, origin, lower=-np.inf, upper=np.inf):
+        l = len(origin)
+        up = l-np.searchsorted(origin[::-1], upper)
+        low = l-np.searchsorted(origin[::-1], lower)
+        return up, low
         
     # other function
     def histogram(self, bins):
